@@ -1,46 +1,19 @@
 --[[
-	Countdown3D.lua  (ModuleScript)
+	Countdown3D.lua (ModuleScript)
 
-	A punchy, 3D-extruded "slam" number/text effect for Roblox - the kind
-	of big chunky countdown you see before a race or a fight starts
-	(3... 2... 1... GO!).
+	Chunky 3D-style countdown effect for Roblox - the "3... 2... 1... GO!"
+	you'd see before a race or a fight starts. It's fake 3D: a handful of
+	copies of the same text, stacked with a small offset and darkened
+	toward the back, which reads as a solid extruded block from normal
+	viewing distance.
 
-	HOW IT WORKS (plain English):
-	Roblox UI is flat by default - there's no real 3D. This effect FAKES
-	a 3D "extruded" look by stacking several copies of the same text on
-	top of each other, each one nudged slightly down-and-right and
-	colored a bit darker than the one in front of it. From a normal
-	viewing distance that reads as a solid, chunky block of text with
-	visible depth/thickness - like a 3D logo - even though it's really
-	just several flat TextLabels stacked up.
-
-	On top of that stack, this adds:
-	  - A quick "pop" scale-in with a bouncy overshoot.
-	  - An expanding, fading ring behind the text (like a shockwave).
-	  - Two colored flash bars along the top and bottom edges of the
-	    screen.
-	  - An optional screen-shake wobble for extra-dramatic reveals (see
-	    the `big` option below).
-	  - A clean auto-fade-out, so nothing ever gets stuck on screen.
-
-	USAGE:
+	Usage:
 		local Countdown3D = require(path.to.Countdown3D)
-
 		Countdown3D.Show("3", Color3.fromRGB(80, 160, 255))
-		Countdown3D.Show("2", Color3.fromRGB(80, 160, 255))
-		Countdown3D.Show("1", Color3.fromRGB(80, 160, 255))
 		Countdown3D.Show("GO!", Color3.fromRGB(80, 160, 255), { big = true })
 
-	Only ever needs a text string and a Color3 - swap the color for any
-	theme (red for danger, blue for "go", gold for a big win) and the
-	face, depth-shading, outline, ring, and flash-bar colors all update
-	together automatically.
-
-	This is a LocalScript-side effect only (pure visuals, no server code,
-	no RemoteEvents of its own) - call Countdown3D.Show(...) from any
-	LocalScript, at whatever moment YOUR game decides a countdown tick
-	(or big reveal) should happen. See ExampleUsage.lua alongside this
-	file for a tiny working demo.
+	One color in, and the face, shading, outline, ring, and edge flashes
+	all get derived from it. See ExampleUsage.lua for a full demo.
 ]]
 
 local Players = game:GetService("Players")
@@ -48,33 +21,20 @@ local TweenService = game:GetService("TweenService")
 
 local Countdown3D = {}
 
--- ============================================================
--- COLOR MATH - turns the ONE color you pass in into the several
--- shades the effect needs (a brighter "face", a darker "depth", etc.)
--- so you never have to think about more than one Color3.
--- ============================================================
-
+-- turns one base color into the lighter/darker shades the effect needs
 local function lighten(color, amount)
-	-- Blends toward white. amount = 0 gives back the same color,
-	-- amount = 1 gives pure white.
 	return color:Lerp(Color3.new(1, 1, 1), amount)
 end
 
 local function darken(color, amount)
-	-- Blends toward black - same idea as lighten() above, just the
-	-- other direction.
 	return color:Lerp(Color3.new(0, 0, 0), amount)
 end
 
--- ============================================================
--- BUILD THE UI ONCE - every later Show() call reuses these same
--- instances instead of creating/destroying anything, so calling this
--- a lot (once a second during a countdown) is essentially free.
--- ============================================================
-
+-- everything below is built once and reused - Show() never creates or
+-- destroys instances, just recolors and retweens what's already there
 local built = false
 local canvas, canvasScale, layers, ring, ringStroke, edgeTop, edgeBottom
-local DEPTH = 7 -- how many stacked layers make up the "thickness" of the text
+local DEPTH = 7 -- how many stacked layers make up the "thickness"
 
 local function build(screenGui)
 	if built then
@@ -82,9 +42,7 @@ local function build(screenGui)
 	end
 	built = true
 
-	-- Two soft color bars along the top and bottom edges of the screen -
-	-- they flash on and fade out, like a camera flash catching the edges
-	-- of the frame.
+	-- top/bottom edge flashes
 	local function makeEdge(size, position, gradientRotation)
 		local frame = Instance.new("Frame")
 		frame.Size = size
@@ -102,7 +60,7 @@ local function build(screenGui)
 	edgeTop = makeEdge(UDim2.new(1, 0, 0, 90), UDim2.new(0, 0, 0, 0), 90)
 	edgeBottom = makeEdge(UDim2.new(1, 0, 0, 90), UDim2.new(0, 0, 1, -90), -90)
 
-	-- The expanding "shockwave" ring that blooms out from behind the text.
+	-- expanding ring behind the text
 	ring = Instance.new("Frame")
 	ring.AnchorPoint = Vector2.new(0.5, 0.5)
 	ring.Position = UDim2.new(0.5, 0, 0.42, 0)
@@ -118,23 +76,21 @@ local function build(screenGui)
 	ringCorner.CornerRadius = UDim.new(1, 0)
 	ringCorner.Parent = ring
 
-	-- A CanvasGroup lets us fade EVERY layer of the text stack at once by
-	-- tweening just one property (GroupTransparency), instead of tweening
-	-- all DEPTH+1 layers separately.
+	-- CanvasGroup so the whole stack fades with one tween instead of
+	-- tweening every layer separately
 	canvas = Instance.new("CanvasGroup")
 	canvas.AnchorPoint = Vector2.new(0.5, 0.5)
 	canvas.Position = UDim2.new(0.5, 0, 0.42, 0)
 	canvas.Size = UDim2.new(0, 720, 0, 320)
 	canvas.BackgroundTransparency = 1
-	canvas.GroupTransparency = 1 -- starts invisible
+	canvas.GroupTransparency = 1
 	canvas.ZIndex = 5
 	canvas.Parent = screenGui
 	canvasScale = Instance.new("UIScale")
 	canvasScale.Parent = canvas
 
-	-- The "3D" stack itself: DEPTH+1 copies of the same text, each one a
-	-- few pixels further down-and-right than the last - see setColors()
-	-- below for how the front-to-back darkening is calculated.
+	-- the stack itself - each layer sits a few pixels further
+	-- down-and-right than the last (shading handled in setColors)
 	layers = {}
 	for i = DEPTH, 0, -1 do
 		local label = Instance.new("TextLabel")
@@ -148,8 +104,7 @@ local function build(screenGui)
 		label.ZIndex = 5 + (DEPTH - i)
 		label.Parent = canvas
 		if i == 0 then
-			-- Only the FRONT-most layer (the visible face) gets an
-			-- outline - an outline on every layer would just look muddy.
+			-- only the front face gets an outline, otherwise it looks muddy
 			local outline = Instance.new("UIStroke")
 			outline.Name = "FaceStroke"
 			outline.Thickness = 3.5
@@ -160,8 +115,7 @@ local function build(screenGui)
 	end
 end
 
--- Paints the whole stack of layers for one Show() call: a bright face
--- color up front, fading down to a dark shade at the back of the stack.
+-- bright color up front, fading darker toward the back of the stack
 local function setColors(text, faceColor, depthColor, strokeColor)
 	for i = 0, DEPTH do
 		local label = layers[i]
@@ -170,45 +124,27 @@ local function setColors(text, faceColor, depthColor, strokeColor)
 			label.TextColor3 = faceColor
 			label.FaceStroke.Color = strokeColor
 		else
-			-- Layers further back get progressively darker, which is
-			-- what sells the illusion of a solid, lit-from-the-front
-			-- 3D block instead of a stack of flat, identical labels.
 			local shade = 1 - (i / (DEPTH + 2)) * 0.9
 			label.TextColor3 = Color3.new(depthColor.R * shade, depthColor.G * shade, depthColor.B * shade)
 		end
 	end
 end
 
--- ============================================================
--- PUBLIC API
--- ============================================================
-
--- Bumped on every Show() call. Background effects (the shake loop, the
--- delayed fade-out) check this before touching anything, so an OLDER
--- call can never fight with or cut off a NEWER one that started later.
+-- bumped on every Show() call, so an older call's delayed fade/shake
+-- can tell it's been superseded and bail out instead of fighting a newer one
 local activeGeneration = 0
 
 --[[
 	Countdown3D.Show(text, color, options)
 
-	text    - what to display, e.g. "3", "GO!", "FINAL LAP".
-	color   - a Color3 theme for this reveal. Defaults to red if you
-	          don't pass one. Everything else (face, depth shading,
-	          outline, ring, edge flashes) is derived from this ONE
-	          color, so a single Color3 re-themes the whole effect.
-	options - optional table:
-	            big      (boolean) - a bigger, shakier, longer-held
-	                       reveal for the important moment (the last
-	                       number, "GO!", a final score, etc). Defaults
-	                       to false, which plays a quicker, calmer tick.
-	            holdTime (number)  - seconds to stay fully visible
-	                       before fading out. Defaults to 0.7 (0.8 if
-	                       `big` is true).
-	            parent   (Instance) - where to build this effect's
-	                       ScreenGui. Defaults to the local player's
-	                       PlayerGui. Only matters on the very first
-	                       call - later calls reuse what was already
-	                       built.
+	text    - "3", "GO!", "FINAL LAP", whatever you want on screen.
+	color   - theme color, defaults to red. Everything else (shading,
+	          outline, ring, edge flashes) is derived from this.
+	options - big (bool, default false): bigger/shakier/longer reveal
+	          holdTime (number): seconds before it fades, default 0.7
+	          (0.8 if big)
+	          parent (Instance): where to build the ScreenGui, defaults
+	          to the local player's PlayerGui. Only matters on first call.
 ]]
 function Countdown3D.Show(text, color, options)
 	options = options or {}
@@ -238,10 +174,6 @@ function Countdown3D.Show(text, color, options)
 	local myGeneration = activeGeneration
 	canvas.Visible = true
 
-	-- Derive every other shade from the one color you passed in. A
-	-- normal tick gets a bright, near-white face (easiest to read at a
-	-- glance); a "big" reveal gets a bolder, fully-saturated face and a
-	-- lighter outline instead, so it reads as more intense.
 	local faceColor = big and color or lighten(color, 0.55)
 	local depthColor = darken(color, 0.55)
 	local strokeColor = big and lighten(color, 0.5) or color
@@ -267,9 +199,7 @@ function Countdown3D.Show(text, color, options)
 	end
 
 	if big then
-		-- A brief, self-limiting shake (max 0.35s) - not an infinite
-		-- loop, and it bails out early if a newer Show() has already
-		-- taken over.
+		-- short self-limiting shake, bails early if a newer Show() took over
 		task.spawn(function()
 			local shakeAmount = 6
 			local start = os.clock()
@@ -286,7 +216,7 @@ function Countdown3D.Show(text, color, options)
 	local holdTime = options.holdTime or (big and 0.8 or 0.7)
 	task.delay(holdTime, function()
 		if myGeneration ~= activeGeneration then
-			return -- a newer Show() call has already taken over the display
+			return -- a newer Show() call already took over
 		end
 		TweenService:Create(canvas, TweenInfo.new(0.3), { GroupTransparency = 1 }):Play()
 	end)
