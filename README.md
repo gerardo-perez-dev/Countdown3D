@@ -2,6 +2,8 @@
 
 A 3D-looking countdown effect for Roblox - the chunky "3... 2... 1... GO!" text you see before a match starts. Just one script, no plugins, no extra assets.
 
+![demo](demo.gif)
+
 ## Install
 
 Drop `Countdown3D.lua` into ReplicatedStorage (or anywhere a LocalScript can require it). `ExampleUsage.lua` has a quick demo - delete it once you've wired up your own version.
